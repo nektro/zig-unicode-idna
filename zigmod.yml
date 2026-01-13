@@ -1,0 +1,6 @@
+id: i06sa6zt2xq2wia61uem2konpnwboe01ge80rkj5fi02xcxn
+name: unicode-idna
+main: idna.zig
+license: MIT
+description: "UTS #46"
+dependencies:
