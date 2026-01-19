@@ -239,6 +239,12 @@ fn toAsciiFail(
     const toAsciiTStatus = i[6] || toAsciiNStatus;
 
     if (toUnicodeStatus === "[]") w.write(`test { try toUnicodePass("${E(source)}", "${E(toUnicode)}"); }\n`);
+    if (toAsciiNStatus === "[]") w.write(`test { try toAsciiPass("${E(source)}", "${E(toAsciiN)}", false); }\n`);
+    if (toAsciiTStatus === "[]") w.write(`test { try toAsciiPass("${E(source)}", "${E(toAsciiT)}", true); }\n`);
+
+    // if (toUnicodeStatus !== "[]") w.write(`test { try toUnicodeFail("${E(source)}"); }\n`);
+    // if (toAsciiNStatus !== "[]") w.write(`test { try toAsciiFail("${E(source)}", false); }\n`);
+    // if (toAsciiTStatus !== "[]") w.write(`test { try toAsciiFail("${E(source)}", true); }\n`);
   }
 
   w.flush();

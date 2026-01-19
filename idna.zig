@@ -35,6 +35,7 @@ pub fn ToASCII(
     for (0..map.lengths.items.len) |n| {
         punycode.encode(&map, n) catch |err| switch (err) {
             error.InvalidPunycode => return error.IDNAFailure,
+            error.OutOfMemory => |e| return e,
         };
     }
 

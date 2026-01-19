@@ -18,9 +18,6 @@ pub fn decode(map: *extras.ManyArrayList(u8), map_n: usize) !void {
     offset += 4;
     input = input[offset..initial_len];
 
-    var word_n: u32 = 0;
-    word_n += initial_n;
-
     // let n = initial_n
     var n: u21 = 128;
     // let i = 0
@@ -130,8 +127,105 @@ fn adapt(delta_: u32, numpoints: u32, firsttime: bool) u32 {
     return k + (((base - tmin + 1) * delta) / (delta + skew));
 }
 
-// TODO:
-pub fn encode(map: *extras.ManyArrayList(u8), n: usize) !void {
-    _ = map;
-    _ = n;
+pub fn encode(map: *extras.ManyArrayList(u8), map_n: usize) !void {
+    const initial_len = map.lengths.items[map_n];
+    var input = map.items(map_n)[0..initial_len];
+    if (extras.matchesAll(u8, input, std.ascii.isAscii)) return;
+    try map.appendSlice(map_n, "xn--");
+    input = map.items(map_n)[0..initial_len];
+    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+    var input_len_in_cp: u32 = 0;
+    var it = std.unicode.Utf8View.initUnchecked(input).iterator();
+    while (it.nextCodepointSlice()) |_| input_len_in_cp += 1;
+    it.i = 0;
+
+    // let n = initial_n
+    var n: u21 = initial_n;
+    // let delta = 0
+    var delta: u32 = 0;
+    // let bias = initial_bias
+    var bias: u32 = initial_bias;
+    // let h = b = the number of basic code points in the input
+    // copy them to the output in order, followed by a delimiter if b > 0
+    var h: u32 = 0;
+    var b: u32 = 0;
+    {
+        var i: usize = 0;
+        while (i < input.len) : (i += 1) {
+            if (std.ascii.isAscii(input[i])) b += 1;
+        }
+        try map.list.ensureUnusedCapacity(map.allocator, b + 1);
+        input = map.items(map_n)[0..initial_len];
+        i = 0;
+        while (i < input.len) : (i += 1) {
+            if (std.ascii.isAscii(input[i])) map.appendSlice(map_n, &.{input[i]}) catch unreachable;
+        }
+        if (b > 0) map.appendSlice(map_n, &.{delimiter}) catch unreachable;
+        h = b;
+    }
+    // {if the input contains a non-basic code point < n then fail}
+    // while h < length(input) do begin
+    while (h < input_len_in_cp) {
+        // let m = the minimum {non-basic} code point >= n in the input
+        const m = get_m(it.bytes, n);
+        // let delta = delta + (m - n) * (h + 1), fail on overflow
+        delta = delta + (m - n) * (h + 1);
+        if (false) return error.InvalidPunycode;
+        // let n = m
+        n = m;
+        // for each code point c in the input (in order) do begin
+        it.i = 0;
+        while (it.nextCodepointSlice()) |sl| {
+            const c = std.unicode.utf8Decode(sl) catch unreachable;
+            // if c < n {or c is basic} then increment delta, fail on overflow
+            if (c < n) {
+                delta = std.math.add(u32, delta, 1) catch return error.InvalidPunycode;
+            }
+            // if c == n then begin
+            if (c == n) {
+                //   let q = delta
+                var q = delta;
+                //   for k = base to infinity in steps of base do begin
+                var k: u23 = base;
+                while (true) : (k += base) {
+                    // let t = tmin if k <= bias {+ tmin}, or
+                    //         tmax if k >= bias + tmax, or k - bias otherwise
+                    const t = if (k <= bias) tmin else if (k >= bias + tmax) tmax else k - bias;
+                    // if q < t then break
+                    if (q < t) break;
+                    // output the code point for digit t + ((q - t) mod (base - t))
+                    try map.appendSlice(map_n, &.{alphabet[t + ((q - t) % (base - t))]});
+                    it.bytes = map.items(map_n)[0..initial_len];
+                    // let q = (q - t) div (base - t)
+                    q = (q - t) / (base - t);
+                }
+                // output the code point for digit q
+                try map.appendSlice(map_n, &.{alphabet[q]});
+                it.bytes = map.items(map_n)[0..initial_len];
+                // let bias = adapt(delta, h + 1, test h equals b?)
+                bias = adapt(delta, h + 1, h == b);
+                // let delta = 0
+                delta = 0;
+                // increment h
+                h += 1;
+            }
+        }
+        // increment delta and n
+        delta += 1;
+        n += 1;
+    }
+    // clear input from map_n item
+    map.replace(map_n, 0, initial_len, "") catch unreachable;
+}
+
+fn get_m(input: []const u8, n: u21) u21 {
+    var min: u21 = std.math.maxInt(u21);
+    var it = std.unicode.Utf8View.initUnchecked(input).iterator();
+    while (it.nextCodepointSlice()) |sl| {
+        const cp = std.unicode.utf8Decode(sl) catch unreachable;
+        if (cp < n) continue;
+        min = @min(min, cp);
+    }
+    return min;
 }
