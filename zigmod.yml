@@ -4,3 +4,7 @@ main: idna.zig
 license: MIT
 description: "UTS #46"
 dependencies:
+  - src: git https://github.com/nektro/zig-extras
+  - src: git https://github.com/nektro/zig-unicode-ucd
+root_dependencies:
+  - src: git https://github.com/nektro/zig-expect

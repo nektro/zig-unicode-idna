@@ -1,6 +1,28 @@
 import { closeSync, openSync } from "node:fs";
 
 const unicode_version = "17.0.0";
+const encoder = new TextEncoder();
+
+function stringEscape(s?: string) {
+  if (!s) return "";
+  return Array.from(encoder.encode(s.replace(/\\u([0-9A-F]{4})/g, (s) => String.fromCodePoint(parseInt(s.slice(2), 16)))))
+    .map((x) => {
+      if (x === 0x09) return "\\t";
+      if (x === 0x0a) return "\\n";
+      if (x === 0x0d) return "\\r";
+      if (x === 0x20) return " ";
+      if (x === 0x21) return "!";
+      if (x === 0x22) return `\\"`;
+      if (x >= 0x23 && x <= 0x26) return String.fromCodePoint(x);
+      if (x === 0x27) return "'";
+      if (x >= 0x28 && x <= 0x5b) return String.fromCodePoint(x);
+      if (x === 0x5c) return "\\\\";
+      if (x >= 0x5d && x <= 0x7e) return String.fromCodePoint(x);
+      return `\\x${x.toString(16).padStart(2, "0")}`;
+    })
+    .join("");
+}
+const E = stringEscape;
 
 {
   const source = `https://www.unicode.org/Public/${unicode_version}/idna/IdnaMappingTable.txt`;
@@ -152,9 +174,72 @@ const unicode_version = "17.0.0";
   w.write(`\n`);
   w.write(`// Based on the source file: ${source}\n`);
   w.write(`//\n`);
+  w.write(`// zig fmt: off\n`);
+  w.write(`\n`);
+  w.write(`const std = @import("std");\n`);
+  w.write(`const idna = @import("unicode-idna");\n`);
+  w.write(`const expect = @import("expect").expect;\n`);
+
+  w.write(`
+fn toUnicodePass(
+    source: []const u8,
+    expected: []const u8,
+) !void {
+    const allocator = std.testing.allocator;
+    const result = try idna.ToUnicode(allocator, source, true, true, true, true, false, false);
+    defer allocator.free(result);
+    try expect(result).toEqualString(expected);
+}
+
+fn toUnicodeFail(
+    source: []const u8,
+) !void {
+    const allocator = std.testing.allocator;
+    const result = idna.ToUnicode(allocator, source, true, true, true, true, false, false) catch |err| switch (err) {
+        error.IDNAFailure => return,
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer allocator.free(result);
+    return error.ShouldHaveFailed;
+}
+
+fn toAsciiPass(
+    source: []const u8,
+    expected: []const u8,
+    Transitional_Processing: bool,
+) !void {
+    const allocator = std.testing.allocator;
+    const result = try idna.ToASCII(allocator, source, true, true, true, true, Transitional_Processing, true, false);
+    defer allocator.free(result);
+    try expect(result).toEqualString(expected);
+}
+
+fn toAsciiFail(
+    source: []const u8,
+    Transitional_Processing: bool,
+) !void {
+    const allocator = std.testing.allocator;
+    const result = idna.ToASCII(allocator, source, true, true, true, true, Transitional_Processing, true, false) catch |err| switch (err) {
+        error.IDNAFailure => return,
+        error.OutOfMemory => return error.OutOfMemory,
+    };
+    defer allocator.free(result);
+    return error.ShouldHaveFailed;
+}
+`);
   w.write(`\n`);
 
-  //TODO:
+  for (const i of cols) {
+    const source = i[0];
+    const toUnicode = i[1] || source;
+    const toUnicodeStatus = i[2] || "[]";
+    const toAsciiN = i[3] || toUnicode;
+    const toAsciiNStatus = i[4] || toUnicodeStatus;
+    const toAsciiT = i[5] || toAsciiN;
+    const toAsciiTStatus = i[6] || toAsciiNStatus;
+
+    if (toUnicodeStatus === "[]") w.write(`test { try toUnicodePass("${E(source)}", "${E(toUnicode)}"); }\n`);
+  }
 
   w.flush();
 }
