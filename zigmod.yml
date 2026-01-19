@@ -1,7 +1,7 @@
 id: i06sa6zt2xq2wia61uem2konpnwboe01ge80rkj5fi02xcxn
 name: unicode-idna
 main: idna.zig
-license: MIT
+license: MPL-2.0
 description: "UTS #46"
 dependencies:
   - src: git https://github.com/nektro/zig-extras
