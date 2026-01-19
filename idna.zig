@@ -19,8 +19,6 @@ pub fn ToASCII(
     VerifyDnsLength: bool,
     IgnoreInvalidPunycode: bool,
 ) ![]u8 {
-    // if (extras.matchesAll(u8, domain_name, std.ascii.isAscii)) return allocator.dupe(u8, domain_name);
-
     var map = extras.ManyArrayList(u8).init(allocator);
     defer map.deinit();
 
@@ -56,7 +54,6 @@ pub fn ToUnicode(
     Transitional_Processing: bool, //deprecated
     IgnoreInvalidPunycode: bool,
 ) ![]u8 {
-    // if (extras.matchesAll(u8, domain_name, std.ascii.isAscii)) return allocator.dupe(u8, domain_name);
     var map = extras.ManyArrayList(u8).init(allocator);
     defer map.deinit();
     try Processing(&map, domain_name, UseSTD3ASCIIRules, CheckHyphens, CheckBidi, CheckJoiners, Transitional_Processing, IgnoreInvalidPunycode);

@@ -178,13 +178,7 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
 
         const slt = map.items(i + 2);
         const cpt = std.unicode.utf8Decode(slt) catch unreachable;
-        if ((hangul_syllable_type(cpt) orelse {
-            // try composeHangulSyllable2(map, i, cpl, cpv);
-            continue;
-        }) != .T) {
-            // try composeHangulSyllable2(map, i, cpl, cpv);
-            continue;
-        }
+        if ((hangul_syllable_type(cpt) orelse continue) != .T) continue;
         std.debug.assert(cpt >= 0x11A8 and cpt <= 0x11C2);
         // seq is <L,V,T>
         try composeHangulSyllable3(map, i, cpl, cpv, cpt);
