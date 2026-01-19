@@ -8,6 +8,7 @@ pub const @"2008" = @import("./2008.zig");
 
 pub const table = @import("./table.zig");
 
+// https://unicode.org/reports/tr46/#ToASCII
 pub fn ToASCII(
     allocator: std.mem.Allocator,
     domain_name: []const u8,
@@ -44,6 +45,7 @@ pub fn ToASCII(
     return map.toOwnedSlice();
 }
 
+// https://unicode.org/reports/tr46/#ToUnicode
 pub fn ToUnicode(
     allocator: std.mem.Allocator,
     domain_name: []const u8,
@@ -60,6 +62,7 @@ pub fn ToUnicode(
     return map.toOwnedSlice();
 }
 
+// https://unicode.org/reports/tr46/#Processing
 fn Processing(
     map: *extras.ManyArrayList(u8),
     domain_name: []const u8,
@@ -166,6 +169,7 @@ fn isNFC(map: *const extras.ManyArrayList(u8)) bool {
     return false;
 }
 
+// https://unicode.org/reports/tr46/#Validity_Criteria
 fn Validity_Criteria(
     label: []const u8,
     CheckHyphens: bool,

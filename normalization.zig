@@ -41,6 +41,7 @@ pub fn ToNFKC(map: *extras.ManyArrayList(u8)) !void {
     try CanonicalComposition(map);
 }
 
+// https://www.unicode.org/versions/latest/core-spec/chapter-3/#G733
 fn Decomposition(map: *extras.ManyArrayList(u8), kind: enum { canonical, compatibility }) !void {
     // fully decompose all codepoints in the string
     var n: usize = 0;
@@ -101,6 +102,7 @@ fn Decomposition(map: *extras.ManyArrayList(u8), kind: enum { canonical, compati
     }
 }
 
+// https://www.unicode.org/versions/latest/core-spec/chapter-3/#G50628
 fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
     if (map.lengths.items.len < 2) {
         return;
@@ -157,6 +159,7 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
             break;
         }
     }
+    // https://www.unicode.org/versions/latest/core-spec/chapter-3/#G56669
     i = 0;
     while (i < map.lengths.items.len) : (i += 1) {
         const sll = map.items(i);
