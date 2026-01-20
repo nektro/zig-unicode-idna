@@ -140,10 +140,10 @@ fn Processing(
             if (label.len == 0) return error.IDNAFailure;
             if (extras.matchesAll(u8, label, std.ascii.isAscii)) return error.IDNAFailure;
             // 4. Verify that the label meets the validity criteria in Section 4.1, Validity Criteria for Nontransitional Processing. If any of the validity criteria are not satisfied, record that there was an error.
-            try Validity_Criteria(label, CheckHyphens, true, false, UseSTD3ASCIIRules, CheckJoiners, CheckBidi);
+            try Validity_Criteria(label, CheckHyphens, true, UseSTD3ASCIIRules, CheckJoiners, CheckBidi);
         } else {
             // 1. Verify that the label meets the validity criteria in Section 4.1, Validity Criteria for the input Processing choice (Transitional or Nontransitional). If any of the validity criteria are not satisfied, record that there was an error.
-            try Validity_Criteria(label, CheckHyphens, Transitional_Processing, !Transitional_Processing, UseSTD3ASCIIRules, CheckJoiners, CheckBidi);
+            try Validity_Criteria(label, CheckHyphens, Transitional_Processing, UseSTD3ASCIIRules, CheckJoiners, CheckBidi);
         }
     }
 }
@@ -175,21 +175,33 @@ fn Validity_Criteria(
     label: []const u8,
     CheckHyphens: bool,
     Transitional_Processing: bool, //deprecated,
-    NonTransitional_Processing: bool, //deprecated,
     UseSTD3ASCIIRules: bool,
     CheckJoiners: bool,
     CheckBidi: bool,
 ) !void {
-    // if (!isNFC(label)) return error.IDNAFailure; // TODO:
+    // Each of the following criteria must be satisfied for a non-empty label:
+    if (label.len == 0) return;
+    // 1. The label must be in Unicode Normalization Form NFC.
+    {}
+    // 2. If CheckHyphens, the label must not contain a U+002D HYPHEN-MINUS character in both the third and fourth positions.
     if (CheckHyphens and label.len >= 4 and label[2] == '-' and label[3] == '-') return error.IDNAFailure;
+    // 3. If CheckHyphens, the label must neither begin nor end with a U+002D HYPHEN-MINUS character.
     if (CheckHyphens and std.mem.startsWith(u8, label, "-")) return error.IDNAFailure;
     if (CheckHyphens and std.mem.endsWith(u8, label, "-")) return error.IDNAFailure;
+    // 4. If not CheckHyphens, the label must not begin with “xn--”.
     if (!CheckHyphens and std.mem.startsWith(u8, label, "xn--")) return error.IDNAFailure;
+    // 5. The label must not contain a U+002E ( . ) FULL STOP.
     if (std.mem.indexOfScalar(u8, label, '.') != null) return error.IDNAFailure;
 
     _ = Transitional_Processing;
-    _ = NonTransitional_Processing;
     _ = UseSTD3ASCIIRules;
     _ = CheckJoiners;
     _ = CheckBidi;
+    // 6. The label must not begin with a combining mark, that is: General_Category=Mark.
+
+    // 7. Each code point in the label must only have certain Status values according to Section 5, IDNA Mapping Table:
+
+    // 8. If CheckJoiners, the label must satisify the ContextJ rules from RFC 5892 Appendix A.
+
+    // 9. If CheckBidi, and if the domain name is a Bidi domain name, then the label must satisfy all six of the numbered conditions in RFC 5893 Section 2.
 }
