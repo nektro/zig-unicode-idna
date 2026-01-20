@@ -140,10 +140,34 @@ fn Processing(
             if (label.len == 0) return error.IDNAFailure;
             if (extras.matchesAll(u8, label, std.ascii.isAscii)) return error.IDNAFailure;
             // 4. Verify that the label meets the validity criteria in Section 4.1, Validity Criteria for Nontransitional Processing. If any of the validity criteria are not satisfied, record that there was an error.
-            try Validity_Criteria(label, CheckHyphens, true, UseSTD3ASCIIRules, CheckJoiners, CheckBidi);
         } else {
             // 1. Verify that the label meets the validity criteria in Section 4.1, Validity Criteria for the input Processing choice (Transitional or Nontransitional). If any of the validity criteria are not satisfied, record that there was an error.
-            try Validity_Criteria(label, CheckHyphens, Transitional_Processing, UseSTD3ASCIIRules, CheckJoiners, CheckBidi);
+        }
+    }
+
+    var domain_is_bidi = false;
+    it = std.unicode.Utf8View.initUnchecked(map.list.items).iterator();
+    while (it.nextCodepointSlice()) |s| {
+        const c = std.unicode.utf8Decode(s) catch unreachable;
+        const p = ucd.unicode_data.find(c);
+        switch (p[4]) {
+            .R, .AL, .AN => domain_is_bidi = true,
+            else => {},
+        }
+    }
+
+    for (0..map.lengths.items.len) |n| {
+        const label = map.items(n);
+        if (std.mem.eql(u8, label, ".")) continue;
+
+        if (!extras.matchesAll(u8, label, std.ascii.isAscii)) {
+            // label was punycode converted above
+            // 4. Verify that the label meets the validity criteria in Section 4.1, Validity Criteria for Nontransitional Processing. If any of the validity criteria are not satisfied, record that there was an error.
+            try Validity_Criteria(label, CheckHyphens, false, UseSTD3ASCIIRules, CheckJoiners, CheckBidi and domain_is_bidi);
+        } else {
+            // label was already ascii
+            // 1. Verify that the label meets the validity criteria in Section 4.1, Validity Criteria for the input Processing choice (Transitional or Nontransitional). If any of the validity criteria are not satisfied, record that there was an error.
+            try Validity_Criteria(label, CheckHyphens, Transitional_Processing, UseSTD3ASCIIRules, CheckJoiners, CheckBidi and domain_is_bidi);
         }
     }
 }
@@ -193,15 +217,84 @@ fn Validity_Criteria(
     // 5. The label must not contain a U+002E ( . ) FULL STOP.
     if (std.mem.indexOfScalar(u8, label, '.') != null) return error.IDNAFailure;
 
-    _ = Transitional_Processing;
-    _ = UseSTD3ASCIIRules;
-    _ = CheckJoiners;
-    _ = CheckBidi;
     // 6. The label must not begin with a combining mark, that is: General_Category=Mark.
+    const first_b = label[0];
+    const first_l = std.unicode.utf8ByteSequenceLength(first_b) catch unreachable;
+    const first_c = std.unicode.utf8Decode(label[0..first_l]) catch unreachable;
+    const first_p = ucd.unicode_data.find(first_c);
+    if (first_p[2] == .M) return error.IDNAFailure;
+    if (first_p[2] == .Combining_Mark) return error.IDNAFailure;
+    if (first_p[2] == .Mc) return error.IDNAFailure;
+    if (first_p[2] == .Me) return error.IDNAFailure;
+    if (first_p[2] == .Mn) return error.IDNAFailure;
 
     // 7. Each code point in the label must only have certain Status values according to Section 5, IDNA Mapping Table:
+    var it = std.unicode.Utf8View.initUnchecked(label).iterator();
+    while (it.nextCodepointSlice()) |sl| {
+        const cp = std.unicode.utf8Decode(sl) catch unreachable;
+        const status, _, _ = mappingRow(cp);
+
+        // 1. For Transitional Processing (deprecated), each value must be valid.
+        // 2. For Nontransitional Processing, each value must be either valid or deviation.
+        if (Transitional_Processing) {
+            if (!(status == .valid)) return error.IDNAFailure;
+        } else {
+            if (!(status == .valid or status == .deviation)) return error.IDNAFailure;
+        }
+
+        // 3. In addition, if UseSTD3ASCIIRules=true and the code point is an ASCII code point (U+0000..U+007F), then it must be a lowercase letter (a-z), a digit (0-9), or a hyphen-minus (U+002D).
+        // (Note: This excludes uppercase ASCII A-Z which are mapped in UTS #46 and disallowed in IDNA2008.)
+        if (UseSTD3ASCIIRules and std.ascii.isAscii(sl[0])) {
+            if (std.ascii.isLower(sl[0])) continue;
+            if (std.ascii.isDigit(sl[0])) continue;
+            if (sl[0] == '-') continue;
+            return error.IDNAFailure;
+        }
+    }
 
     // 8. If CheckJoiners, the label must satisify the ContextJ rules from RFC 5892 Appendix A.
+    if (CheckJoiners) {
+        //
+    }
 
     // 9. If CheckBidi, and if the domain name is a Bidi domain name, then the label must satisfy all six of the numbered conditions in RFC 5893 Section 2.
+    if (CheckBidi) {
+        // 1. The first character must be a character with Bidi property L, R, or AL.  If it has the R or AL property, it is an RTL label; if it has the L property, it is an LTR label.
+        // 2. In an RTL label, only characters with the Bidi properties R, AL, AN, EN, ES, CS, ET, ON, BN, or NSM are allowed.
+        // 3. In an RTL label, the end of the label must be a character with Bidi property R, AL, EN, or AN, followed by zero or more characters with Bidi property NSM.
+        // 4. In an RTL label, if an EN is present, no AN may be present, and vice versa.
+        // 5. In an LTR label, only characters with the Bidi properties L, EN, ES, CS, ET, ON, BN, or NSM are allowed.
+        // 6. In an LTR label, the end of the label must be a character with Bidi property L or EN, followed by zero or more characters with Bidi property NSM.
+        switch (first_p[4]) {
+            .L => {
+                it.i = 0;
+                while (it.nextCodepointSlice()) |sl| {
+                    const cp = std.unicode.utf8Decode(sl) catch unreachable;
+                    const point = ucd.unicode_data.find(cp);
+                    switch (point[4]) {
+                        .L, .EN, .ES, .CS, .ET, .ON, .BN, .NSM => {},
+                        else => return error.IDNAFailure,
+                    }
+                }
+            },
+            .R, .AL => {
+                it.i = 0;
+                var seen_en = false;
+                var seen_an = false;
+                while (it.nextCodepointSlice()) |sl| {
+                    const cp = std.unicode.utf8Decode(sl) catch unreachable;
+                    const point = ucd.unicode_data.find(cp);
+                    switch (point[4]) {
+                        .R, .AL, .AN, .EN, .ES, .CS, .ET, .ON, .BN, .NSM => {},
+                        else => return error.IDNAFailure,
+                    }
+                    if (point[4] == .EN and seen_an) return error.IDNAFailure;
+                    if (point[4] == .EN) seen_en = true;
+                    if (point[4] == .AN and seen_en) return error.IDNAFailure;
+                    if (point[4] == .AN) seen_an = true;
+                }
+            },
+            else => return error.IDNAFailure,
+        }
+    }
 }

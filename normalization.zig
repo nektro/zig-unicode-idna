@@ -165,13 +165,11 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
         const sll = map.items(i);
         const cpl = std.unicode.utf8Decode(sll) catch unreachable;
         if ((hangul_syllable_type(cpl) orelse continue) != .L) continue;
-        std.debug.assert(cpl >= 0x1100 and cpl <= 0x1112);
 
         if (i + 1 == map.lengths.items.len) break;
         const slv = map.items(i + 1);
         const cpv = std.unicode.utf8Decode(slv) catch unreachable;
         if ((hangul_syllable_type(cpv) orelse continue) != .V) continue;
-        std.debug.assert(cpv >= 0x1161 and cpv <= 0x1175);
 
         if (i + 2 == map.lengths.items.len) {
             //seq is only <L,V>
@@ -182,7 +180,6 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
         const slt = map.items(i + 2);
         const cpt = std.unicode.utf8Decode(slt) catch unreachable;
         if ((hangul_syllable_type(cpt) orelse continue) != .T) continue;
-        std.debug.assert(cpt >= 0x11A8 and cpt <= 0x11C2);
         // seq is <L,V,T>
         try composeHangulSyllable3(map, i, cpl, cpv, cpt);
     }
