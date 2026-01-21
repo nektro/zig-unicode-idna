@@ -242,6 +242,13 @@ fn Validity_Criteria(
     var it = std.unicode.Utf8View.initUnchecked(label).iterator();
     var prev_ccc: u8 = 0;
     var prev_cp: u21 = 0;
+
+    // 8. If CheckJoiners, the label must satisify the ContextJ rules from RFC 5892 Appendix A.
+    var point_2before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
+    var point_before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
+    var zwnj_state: enum { start, dual_joining, transparent1, zwnj, transparent2, right_joining } = .start;
+    var check_zwnj_state: ?bool = null;
+
     while (it.nextCodepointSlice()) |sl| {
         const cp = std.unicode.utf8Decode(sl) catch unreachable;
         const status, _, _ = mappingRow(cp);
@@ -292,98 +299,89 @@ fn Validity_Criteria(
             if (sl[0] == '-') continue;
             return error.IDNAFailure;
         }
-    }
 
-    // 8. If CheckJoiners, the label must satisify the ContextJ rules from RFC 5892 Appendix A.
-    if (CheckJoiners) {
-        it.i = 0;
-        var point_2before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
-        var point_before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
-        var zwnj_state: enum { start, dual_joining, transparent1, zwnj, transparent2, right_joining } = .start;
-        var check_zwnj_state: ?bool = null;
+        const p = ucd.unicode_data.find(cp);
 
-        while (it.nextCodepointSlice()) |s| {
-            const c = std.unicode.utf8Decode(s) catch unreachable;
-            const p = ucd.unicode_data.find(c);
-            {
-                // Appendix A.1.  ZERO WIDTH NON-JOINER
-                if (c == 0x200C) {
-                    if (check_zwnj_state == null) check_zwnj_state = true;
-                    if (point_before[3] == 9) check_zwnj_state = false;
-                }
-                switch (zwnj_state) {
-                    .start => {
-                        if (Joining_Type(c)) |t| {
-                            if (t == .L) zwnj_state = .dual_joining;
-                            if (t == .D) zwnj_state = .dual_joining;
-                        }
-                    },
-                    .dual_joining => {
-                        if (Joining_Type(c)) |t| {
-                            switch (t) {
-                                .T => zwnj_state = .transparent1,
-                                .L, .D => {},
-                                else => zwnj_state = .transparent1,
-                            }
-                        } else {
-                            zwnj_state = .transparent1;
-                        }
-                        if (c == 0x200C) zwnj_state = .zwnj;
-                    },
-                    .transparent1 => {
-                        if (c == 0x200C) {
-                            zwnj_state = .zwnj;
-                        } else {
-                            zwnj_state = .start;
-                        }
-                    },
-                    .zwnj => {
-                        if (Joining_Type(c)) |t| {
-                            switch (t) {
-                                .T => zwnj_state = .transparent2,
-                                .R, .D => zwnj_state = .right_joining,
-                                .L => zwnj_state = .dual_joining,
-                                else => zwnj_state = .transparent2,
-                            }
-                        } else {
-                            zwnj_state = .transparent2;
-                        }
-                    },
-                    .transparent2 => {
-                        if (Joining_Type(c)) |t| {
-                            switch (t) {
-                                .R, .D => zwnj_state = .right_joining,
-                                .L => zwnj_state = .dual_joining,
-                                else => zwnj_state = .start,
-                            }
-                        } else {
-                            zwnj_state = .start;
-                        }
-                    },
-                    .right_joining => {
-                        //rule passed
-                    },
-                }
-                // Appendix A.2.  ZERO WIDTH JOINER
-                if (c == 0x200D and point_before[3] != 9) return error.IDNAFailure;
-                // Appendix A.3.  MIDDLE DOT
-                if (point_before[0] == 0x00B7 and !(point_2before[0] == 0x006C and c == 0x006C)) return error.IDNAFailure;
-                // Appendix A.4.  GREEK LOWER NUMERAL SIGN (KERAIA)
-                if (point_before[0] == 0x0375 and !(Script(c) == .Greek)) return error.IDNAFailure;
-                // Appendix A.5.  HEBREW PUNCTUATION GERESH
-                if (c == 0x05F3 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
-                // Appendix A.6.  HEBREW PUNCTUATION GERSHAYIM
-                if (c == 0x05F4 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
-                // Appendix A.7.  KATAKANA MIDDLE DOT
-                if (false) return error.IDNAFailure;
-                // Appendix A.8.  ARABIC-INDIC DIGITS
-                if (false) return error.IDNAFailure;
-                // Appendix A.9.  EXTENDED ARABIC-INDIC DIGITS
-                if (false) return error.IDNAFailure;
+        if (CheckJoiners) {
+            // Appendix A.1.  ZERO WIDTH NON-JOINER
+            if (cp == 0x200C) {
+                if (check_zwnj_state == null) check_zwnj_state = true;
+                if (point_before[3] == 9) check_zwnj_state = false;
             }
-            point_2before = point_before;
-            point_before = p;
+            switch (zwnj_state) {
+                .start => {
+                    if (Joining_Type(cp)) |t| {
+                        if (t == .L) zwnj_state = .dual_joining;
+                        if (t == .D) zwnj_state = .dual_joining;
+                    }
+                },
+                .dual_joining => {
+                    if (Joining_Type(cp)) |t| {
+                        switch (t) {
+                            .T => zwnj_state = .transparent1,
+                            .L, .D => {},
+                            else => zwnj_state = .transparent1,
+                        }
+                    } else {
+                        zwnj_state = .transparent1;
+                    }
+                    if (cp == 0x200C) zwnj_state = .zwnj;
+                },
+                .transparent1 => {
+                    if (cp == 0x200C) {
+                        zwnj_state = .zwnj;
+                    } else {
+                        zwnj_state = .start;
+                    }
+                },
+                .zwnj => {
+                    if (Joining_Type(cp)) |t| {
+                        switch (t) {
+                            .T => zwnj_state = .transparent2,
+                            .R, .D => zwnj_state = .right_joining,
+                            .L => zwnj_state = .dual_joining,
+                            else => zwnj_state = .transparent2,
+                        }
+                    } else {
+                        zwnj_state = .transparent2;
+                    }
+                },
+                .transparent2 => {
+                    if (Joining_Type(cp)) |t| {
+                        switch (t) {
+                            .R, .D => zwnj_state = .right_joining,
+                            .L => zwnj_state = .dual_joining,
+                            else => zwnj_state = .start,
+                        }
+                    } else {
+                        zwnj_state = .start;
+                    }
+                },
+                .right_joining => {
+                    //rule passed
+                },
+            }
+            // Appendix A.2.  ZERO WIDTH JOINER
+            if (cp == 0x200D and point_before[3] != 9) return error.IDNAFailure;
+            // Appendix A.3.  MIDDLE DOT
+            if (point_before[0] == 0x00B7 and !(point_2before[0] == 0x006C and cp == 0x006C)) return error.IDNAFailure;
+            // Appendix A.4.  GREEK LOWER NUMERAL SIGN (KERAIA)
+            if (point_before[0] == 0x0375 and !(Script(cp) == .Greek)) return error.IDNAFailure;
+            // Appendix A.5.  HEBREW PUNCTUATION GERESH
+            if (cp == 0x05F3 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
+            // Appendix A.6.  HEBREW PUNCTUATION GERSHAYIM
+            if (cp == 0x05F4 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
+            // Appendix A.7.  KATAKANA MIDDLE DOT
+            if (false) return error.IDNAFailure;
+            // Appendix A.8.  ARABIC-INDIC DIGITS
+            if (false) return error.IDNAFailure;
+            // Appendix A.9.  EXTENDED ARABIC-INDIC DIGITS
+            if (false) return error.IDNAFailure;
         }
+        point_2before = point_before;
+        point_before = p;
+    }
+    if (CheckJoiners) {
         if (check_zwnj_state == true and zwnj_state != .right_joining) return error.IDNAFailure;
     }
 
