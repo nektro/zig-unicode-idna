@@ -1,3 +1,5 @@
+//! https://unicode.org/reports/tr15/
+
 const std = @import("std");
 const extras = @import("extras");
 const ucd = @import("unicode-ucd");
@@ -185,7 +187,7 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
     }
 }
 
-fn cpCCC(cp: u21) u8 {
+pub fn cpCCC(cp: u21) u8 {
     if (cp < data_first_gap) {
         return data.items[3][cp];
     }

@@ -40,7 +40,12 @@ pub fn ToASCII(
     }
 
     if (VerifyDnsLength) {
-        //
+        // 1. The length of the domain name, excluding the root label and its dot, is from 1 to 253.
+        // 2. The length of each label is from 1 to 63.
+        for (map.lengths.items, 0..) |l, n| {
+            if (n % 2 == 1) continue;
+            if (l < 1 or l > 63) return error.IDNAFailure;
+        }
     }
 
     return map.toOwnedSlice();
@@ -170,6 +175,10 @@ fn Processing(
             try Validity_Criteria(label, CheckHyphens, Transitional_Processing, UseSTD3ASCIIRules, CheckJoiners, CheckBidi and domain_is_bidi);
         }
     }
+
+    // X4_2
+    if (std.mem.indexOf(u8, map.list.items, "..") != null) return error.IDNAFailure;
+    if (std.mem.startsWith(u8, map.list.items, ".")) return error.IDNAFailure;
 }
 
 //
@@ -230,9 +239,41 @@ fn Validity_Criteria(
 
     // 7. Each code point in the label must only have certain Status values according to Section 5, IDNA Mapping Table:
     var it = std.unicode.Utf8View.initUnchecked(label).iterator();
+    var prev_ccc: u8 = 0;
+    var prev_cp: u21 = 0;
     while (it.nextCodepointSlice()) |sl| {
         const cp = std.unicode.utf8Decode(sl) catch unreachable;
         const status, _, _ = mappingRow(cp);
+
+        // [V1]
+        const ccc = normalization.cpCCC(cp);
+        if (prev_ccc > ccc and ccc > 0) return error.IDNAFailure;
+        for (&ucd.derived_normalization_props.nfc_qc_n.data) |d| if (cp == d) return error.IDNAFailure;
+        for (&ucd.derived_normalization_props.nfc_qc_n.data_range) |d| if (cp >= d.from and cp <= d.to) return error.IDNAFailure;
+        for (&ucd.derived_normalization_props.nfc_qc_m.data) |d| if (cp == d) {
+            for (&ucd.unicode_data.data) |r| {
+                if (r[5] != .__canonical) continue;
+                if (r[6].len != 2) continue;
+                if (r[6][0] != prev_cp) continue;
+                if (r[6][1] != cp) continue;
+                if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, r[0], extras.compareFnBasic(u21)) != null) continue;
+                // if (r[3] != 0) continue;
+                return error.IDNAFailure;
+            }
+        };
+        for (&ucd.derived_normalization_props.nfc_qc_m.data_range) |d| if (cp >= d.from and cp <= d.to) {
+            for (&ucd.unicode_data.data) |r| {
+                if (r[5] != .__canonical) continue;
+                if (r[6].len != 2) continue;
+                if (r[6][0] != prev_cp) continue;
+                if (r[6][1] != cp) continue;
+                if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, r[0], extras.compareFnBasic(u21)) != null) continue;
+                // if (r[3] != 0) continue;
+                return error.IDNAFailure;
+            }
+        };
+        prev_ccc = ccc;
+        prev_cp = cp;
 
         // 1. For Transitional Processing (deprecated), each value must be valid.
         // 2. For Nontransitional Processing, each value must be either valid or deviation.
@@ -254,7 +295,95 @@ fn Validity_Criteria(
 
     // 8. If CheckJoiners, the label must satisify the ContextJ rules from RFC 5892 Appendix A.
     if (CheckJoiners) {
-        //
+        it.i = 0;
+        var point_2before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
+        var point_before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
+        var zwnj_state: enum { start, dual_joining, transparent1, zwnj, transparent2, right_joining } = .start;
+        var check_zwnj_state: ?bool = null;
+
+        while (it.nextCodepointSlice()) |s| {
+            const c = std.unicode.utf8Decode(s) catch unreachable;
+            const p = ucd.unicode_data.find(c);
+            {
+                // Appendix A.1.  ZERO WIDTH NON-JOINER
+                if (c == 0x200C) {
+                    if (check_zwnj_state == null) check_zwnj_state = true;
+                    if (point_before[3] == 9) check_zwnj_state = false;
+                }
+                switch (zwnj_state) {
+                    .start => {
+                        if (Joining_Type(c)) |t| {
+                            if (t == .L) zwnj_state = .dual_joining;
+                            if (t == .D) zwnj_state = .dual_joining;
+                        }
+                    },
+                    .dual_joining => {
+                        if (Joining_Type(c)) |t| {
+                            switch (t) {
+                                .T => zwnj_state = .transparent1,
+                                .L, .D => {},
+                                else => zwnj_state = .transparent1,
+                            }
+                        } else {
+                            zwnj_state = .transparent1;
+                        }
+                        if (c == 0x200C) zwnj_state = .zwnj;
+                    },
+                    .transparent1 => {
+                        if (c == 0x200C) {
+                            zwnj_state = .zwnj;
+                        } else {
+                            zwnj_state = .start;
+                        }
+                    },
+                    .zwnj => {
+                        if (Joining_Type(c)) |t| {
+                            switch (t) {
+                                .T => zwnj_state = .transparent2,
+                                .R, .D => zwnj_state = .right_joining,
+                                .L => zwnj_state = .dual_joining,
+                                else => zwnj_state = .transparent2,
+                            }
+                        } else {
+                            zwnj_state = .transparent2;
+                        }
+                    },
+                    .transparent2 => {
+                        if (Joining_Type(c)) |t| {
+                            switch (t) {
+                                .R, .D => zwnj_state = .right_joining,
+                                .L => zwnj_state = .dual_joining,
+                                else => zwnj_state = .start,
+                            }
+                        } else {
+                            zwnj_state = .start;
+                        }
+                    },
+                    .right_joining => {
+                        //rule passed
+                    },
+                }
+                // Appendix A.2.  ZERO WIDTH JOINER
+                if (c == 0x200D and point_before[3] != 9) return error.IDNAFailure;
+                // Appendix A.3.  MIDDLE DOT
+                if (point_before[0] == 0x00B7 and !(point_2before[0] == 0x006C and c == 0x006C)) return error.IDNAFailure;
+                // Appendix A.4.  GREEK LOWER NUMERAL SIGN (KERAIA)
+                if (point_before[0] == 0x0375 and !(Script(c) == .Greek)) return error.IDNAFailure;
+                // Appendix A.5.  HEBREW PUNCTUATION GERESH
+                if (c == 0x05F3 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
+                // Appendix A.6.  HEBREW PUNCTUATION GERSHAYIM
+                if (c == 0x05F4 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
+                // Appendix A.7.  KATAKANA MIDDLE DOT
+                if (false) return error.IDNAFailure;
+                // Appendix A.8.  ARABIC-INDIC DIGITS
+                if (false) return error.IDNAFailure;
+                // Appendix A.9.  EXTENDED ARABIC-INDIC DIGITS
+                if (false) return error.IDNAFailure;
+            }
+            point_2before = point_before;
+            point_before = p;
+        }
+        if (check_zwnj_state == true and zwnj_state != .right_joining) return error.IDNAFailure;
     }
 
     // 9. If CheckBidi, and if the domain name is a Bidi domain name, then the label must satisfy all six of the numbered conditions in RFC 5893 Section 2.
@@ -268,24 +397,32 @@ fn Validity_Criteria(
         switch (first_p[4]) {
             .L => {
                 it.i = 0;
+                var last_bidi_class: ucd.BidiClass = .NSM;
                 while (it.nextCodepointSlice()) |sl| {
                     const cp = std.unicode.utf8Decode(sl) catch unreachable;
                     const point = ucd.unicode_data.find(cp);
                     switch (point[4]) {
-                        .L, .EN, .ES, .CS, .ET, .ON, .BN, .NSM => {},
+                        .L, .EN, .ES, .CS, .ET, .ON, .BN => |cl| last_bidi_class = cl,
+                        .NSM => {},
                         else => return error.IDNAFailure,
                     }
+                }
+                switch (last_bidi_class) {
+                    .L, .EN => {},
+                    else => return error.IDNAFailure,
                 }
             },
             .R, .AL => {
                 it.i = 0;
                 var seen_en = false;
                 var seen_an = false;
+                var last_bidi_class: ucd.BidiClass = .NSM;
                 while (it.nextCodepointSlice()) |sl| {
                     const cp = std.unicode.utf8Decode(sl) catch unreachable;
                     const point = ucd.unicode_data.find(cp);
                     switch (point[4]) {
-                        .R, .AL, .AN, .EN, .ES, .CS, .ET, .ON, .BN, .NSM => {},
+                        .R, .AL, .AN, .EN, .ES, .CS, .ET, .ON, .BN => |cl| last_bidi_class = cl,
+                        .NSM => {},
                         else => return error.IDNAFailure,
                     }
                     if (point[4] == .EN and seen_an) return error.IDNAFailure;
@@ -293,8 +430,29 @@ fn Validity_Criteria(
                     if (point[4] == .AN and seen_en) return error.IDNAFailure;
                     if (point[4] == .AN) seen_an = true;
                 }
+                switch (last_bidi_class) {
+                    .R, .AL, .EN, .AN => {},
+                    else => return error.IDNAFailure,
+                }
             },
             else => return error.IDNAFailure,
         }
     }
+}
+
+fn Script(cp: u21) ucd.ScriptLong {
+    for (&ucd.scripts.data) |d| {
+        if (cp >= d.from and cp <= d.to) {
+            return d.script;
+        }
+    }
+    unreachable;
+}
+fn Joining_Type(cp: u21) ?ucd.arabic_shaping.Joining.Type {
+    for (&ucd.arabic_shaping.data) |d| {
+        if (cp == d.codepoint) {
+            return d.joining_type;
+        }
+    }
+    return null;
 }

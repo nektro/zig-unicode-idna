@@ -157,6 +157,7 @@ pub fn encode(map: *extras.ManyArrayList(u8), map_n: usize) !void {
         }
         try map.list.ensureUnusedCapacity(map.allocator, b + 1);
         input = map.items(map_n)[0..initial_len];
+        it.bytes = input;
         i = 0;
         while (i < input.len) : (i += 1) {
             if (std.ascii.isAscii(input[i])) map.appendSlice(map_n, &.{input[i]}) catch unreachable;
