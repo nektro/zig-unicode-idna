@@ -249,6 +249,24 @@ fn Validity_Criteria(
     var zwnj_state: enum { start, dual_joining, transparent1, zwnj, transparent2, right_joining } = .start;
     var check_zwnj_state: ?bool = null;
 
+    // 9. If CheckBidi, and if the domain name is a Bidi domain name, then the label must satisfy all six of the numbered conditions in RFC 5893 Section 2.
+    // 9.1. The first character must be a character with Bidi property L, R, or AL.  If it has the R or AL property, it is an RTL label; if it has the L property, it is an LTR label.
+    // 9.2. In an RTL label, only characters with the Bidi properties R, AL, AN, EN, ES, CS, ET, ON, BN, or NSM are allowed.
+    // 9.3. In an RTL label, the end of the label must be a character with Bidi property R, AL, EN, or AN, followed by zero or more characters with Bidi property NSM.
+    // 9.4. In an RTL label, if an EN is present, no AN may be present, and vice versa.
+    // 9.5. In an LTR label, only characters with the Bidi properties L, EN, ES, CS, ET, ON, BN, or NSM are allowed.
+    // 9.6. In an LTR label, the end of the label must be a character with Bidi property L or EN, followed by zero or more characters with Bidi property NSM.
+    var seen_en = false;
+    var seen_an = false;
+    var last_bidi_class: ucd.BidiClass = .NSM;
+    if (CheckBidi) {
+        switch (first_p[4]) {
+            .L => {},
+            .R, .AL => {},
+            else => return error.IDNAFailure,
+        }
+    }
+
     while (it.nextCodepointSlice()) |sl| {
         const cp = std.unicode.utf8Decode(sl) catch unreachable;
         const status, _, _ = mappingRow(cp);
@@ -293,10 +311,10 @@ fn Validity_Criteria(
 
         // 3. In addition, if UseSTD3ASCIIRules=true and the code point is an ASCII code point (U+0000..U+007F), then it must be a lowercase letter (a-z), a digit (0-9), or a hyphen-minus (U+002D).
         // (Note: This excludes uppercase ASCII A-Z which are mapped in UTS #46 and disallowed in IDNA2008.)
-        if (UseSTD3ASCIIRules and std.ascii.isAscii(sl[0])) {
-            if (std.ascii.isLower(sl[0])) continue;
-            if (std.ascii.isDigit(sl[0])) continue;
-            if (sl[0] == '-') continue;
+        if (UseSTD3ASCIIRules and std.ascii.isAscii(sl[0])) blk: {
+            if (std.ascii.isLower(sl[0])) break :blk;
+            if (std.ascii.isDigit(sl[0])) break :blk;
+            if (sl[0] == '-') break :blk;
             return error.IDNAFailure;
         }
 
@@ -380,61 +398,49 @@ fn Validity_Criteria(
         }
         point_2before = point_before;
         point_before = p;
-    }
-    if (CheckJoiners) {
-        if (check_zwnj_state == true and zwnj_state != .right_joining) return error.IDNAFailure;
-    }
 
-    // 9. If CheckBidi, and if the domain name is a Bidi domain name, then the label must satisfy all six of the numbered conditions in RFC 5893 Section 2.
-    if (CheckBidi) {
-        // 1. The first character must be a character with Bidi property L, R, or AL.  If it has the R or AL property, it is an RTL label; if it has the L property, it is an LTR label.
-        // 2. In an RTL label, only characters with the Bidi properties R, AL, AN, EN, ES, CS, ET, ON, BN, or NSM are allowed.
-        // 3. In an RTL label, the end of the label must be a character with Bidi property R, AL, EN, or AN, followed by zero or more characters with Bidi property NSM.
-        // 4. In an RTL label, if an EN is present, no AN may be present, and vice versa.
-        // 5. In an LTR label, only characters with the Bidi properties L, EN, ES, CS, ET, ON, BN, or NSM are allowed.
-        // 6. In an LTR label, the end of the label must be a character with Bidi property L or EN, followed by zero or more characters with Bidi property NSM.
-        switch (first_p[4]) {
-            .L => {
-                it.i = 0;
-                var last_bidi_class: ucd.BidiClass = .NSM;
-                while (it.nextCodepointSlice()) |sl| {
-                    const cp = std.unicode.utf8Decode(sl) catch unreachable;
-                    const point = ucd.unicode_data.find(cp);
-                    switch (point[4]) {
+        if (CheckBidi) {
+            switch (first_p[4]) {
+                .L => {
+                    switch (p[4]) {
                         .L, .EN, .ES, .CS, .ET, .ON, .BN => |cl| last_bidi_class = cl,
                         .NSM => {},
                         else => return error.IDNAFailure,
                     }
-                }
+                },
+                .R, .AL => {
+                    switch (p[4]) {
+                        .R, .AL, .AN, .EN, .ES, .CS, .ET, .ON, .BN => |cl| last_bidi_class = cl,
+                        .NSM => {},
+                        else => return error.IDNAFailure,
+                    }
+                    if (p[4] == .EN and seen_an) return error.IDNAFailure;
+                    if (p[4] == .EN) seen_en = true;
+                    if (p[4] == .AN and seen_en) return error.IDNAFailure;
+                    if (p[4] == .AN) seen_an = true;
+                },
+                else => unreachable,
+            }
+        }
+    }
+    if (CheckJoiners) {
+        if (check_zwnj_state == true and zwnj_state != .right_joining) return error.IDNAFailure;
+    }
+    if (CheckBidi) {
+        switch (first_p[4]) {
+            .L => {
                 switch (last_bidi_class) {
                     .L, .EN => {},
                     else => return error.IDNAFailure,
                 }
             },
             .R, .AL => {
-                it.i = 0;
-                var seen_en = false;
-                var seen_an = false;
-                var last_bidi_class: ucd.BidiClass = .NSM;
-                while (it.nextCodepointSlice()) |sl| {
-                    const cp = std.unicode.utf8Decode(sl) catch unreachable;
-                    const point = ucd.unicode_data.find(cp);
-                    switch (point[4]) {
-                        .R, .AL, .AN, .EN, .ES, .CS, .ET, .ON, .BN => |cl| last_bidi_class = cl,
-                        .NSM => {},
-                        else => return error.IDNAFailure,
-                    }
-                    if (point[4] == .EN and seen_an) return error.IDNAFailure;
-                    if (point[4] == .EN) seen_en = true;
-                    if (point[4] == .AN and seen_en) return error.IDNAFailure;
-                    if (point[4] == .AN) seen_an = true;
-                }
                 switch (last_bidi_class) {
                     .R, .AL, .EN, .AN => {},
                     else => return error.IDNAFailure,
                 }
             },
-            else => return error.IDNAFailure,
+            else => unreachable,
         }
     }
 }
