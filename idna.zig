@@ -41,6 +41,7 @@ pub fn ToASCII(
 
     if (VerifyDnsLength) {
         // 1. The length of the domain name, excluding the root label and its dot, is from 1 to 253.
+        if (map.list.items.len > 253) return error.IDNAFailure;
         // 2. The length of each label is from 1 to 63.
         for (map.lengths.items, 0..) |l, n| {
             if (n % 2 == 1) continue;
