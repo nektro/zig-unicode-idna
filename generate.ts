@@ -242,7 +242,7 @@ fn toAsciiFail(
     if (toAsciiNStatus === "[]") w.write(`test { try toAsciiPass("${E(source)}", "${E(toAsciiN)}", false); }\n`);
     if (toAsciiTStatus === "[]") w.write(`test { try toAsciiPass("${E(source)}", "${E(toAsciiT)}", true); }\n`);
 
-    if (toUnicodeStatus !== "[]") w.write(`test { try toUnicodeFail("${E(source)}"); } // ${toUnicodeStatus}\n`);
+    if (toUnicodeStatus !== "[]" && toUnicodeStatus !== "[X4_2]") w.write(`test { try toUnicodeFail("${E(source)}"); } // ${toUnicodeStatus}\n`);
     if (toAsciiNStatus !== "[]") w.write(`test { try toAsciiFail("${E(source)}", false); } // ${toAsciiNStatus}\n`);
     if (toAsciiTStatus !== "[]") w.write(`test { try toAsciiFail("${E(source)}", true); } // ${toAsciiTStatus}\n`);
   }

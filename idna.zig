@@ -41,6 +41,7 @@ pub fn ToASCII(
 
     if (VerifyDnsLength) {
         // 1. The length of the domain name, excluding the root label and its dot, is from 1 to 253.
+        if (map.list.items.len < 1) return error.IDNAFailure;
         if (map.list.items.len > 253) return error.IDNAFailure;
         // 2. The length of each label is from 1 to 63.
         for (map.lengths.items, 0..) |l, n| {
@@ -176,10 +177,6 @@ fn Processing(
             try Validity_Criteria(label, CheckHyphens, Transitional_Processing, UseSTD3ASCIIRules, CheckJoiners, CheckBidi and domain_is_bidi);
         }
     }
-
-    // X4_2
-    if (std.mem.indexOf(u8, map.list.items, "..") != null) return error.IDNAFailure;
-    if (std.mem.startsWith(u8, map.list.items, ".")) return error.IDNAFailure;
 }
 
 //
