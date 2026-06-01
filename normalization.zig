@@ -4,9 +4,9 @@ const std = @import("std");
 const extras = @import("extras");
 const ucd = @import("unicode-ucd");
 
-const data = extras.StaticMultiList(ucd.unicode_data.Codepoint).initComptime(&ucd.unicode_data.data);
+const ucd_data_soa = ucd.unicode_data.data_soa;
 const data_first_gap = blk: {
-    for (data.items[0], 0..) |cp, i| {
+    for (ucd_data_soa[0], 0..) |cp, i| {
         if (cp != i) {
             break :blk i;
         }
@@ -50,16 +50,16 @@ fn Decomposition(map: *extras.ManyArrayList(u8), kind: enum { canonical, compati
     while (n < map.lengths.items.len) : (n += 1) {
         const sl = map.items(n);
         const cp = std.unicode.utf8Decode(sl) catch unreachable;
-        if (std.sort.binarySearch(u21, data.items[0], cp, extras.compareFnBasic(u21))) |j| {
-            if (data.items[5][j] == .__none) continue;
-            if ((data.items[5][j] == .__canonical) != (kind == .canonical)) continue;
+        if (std.sort.binarySearch(u21, ucd_data_soa[0], cp, extras.compareFnBasic(u21))) |j| {
+            if (ucd_data_soa[5][j] == .__none) continue;
+            if ((ucd_data_soa[5][j] == .__canonical) != (kind == .canonical)) continue;
             map.remove(n);
-            for (data.items[6][j], 0..) |ktem, k| {
+            for (ucd_data_soa[6][j], 0..) |ktem, k| {
                 var buf: [4]u8 = undefined;
                 const l = std.unicode.utf8Encode(ktem, &buf) catch unreachable;
                 try map.insertAt(n + k, buf[0..l]);
             }
-            n += data.items[6][j].len - 1;
+            n += ucd_data_soa[6][j].len - 1;
         }
     }
     // sort non-starters with respect to canonical ordering
@@ -189,10 +189,10 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
 
 pub fn cpCCC(cp: u21) u8 {
     if (cp < data_first_gap) {
-        return data.items[3][cp];
+        return ucd_data_soa[3][cp];
     }
-    if (std.sort.binarySearch(u21, data.items[0], cp, extras.compareFnBasic(u21))) |idx| {
-        return data.items[3][idx];
+    if (std.sort.binarySearch(u21, ucd_data_soa[0], cp, extras.compareFnBasic(u21))) |idx| {
+        return ucd_data_soa[3][idx];
     }
     // TODO: this happens to be correct but ucd.unicode_data needs to detect the block ranges
     return 0;
