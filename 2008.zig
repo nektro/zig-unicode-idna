@@ -7,13 +7,13 @@
 
 pub const Prop = struct {
     cp: u21,
-    category: Category
+    category: Category,
 };
 
 pub const PropRange = struct {
     from: u21,
     to: u21,
-    category: Category
+    category: Category,
 };
 
 pub const Category = enum {
