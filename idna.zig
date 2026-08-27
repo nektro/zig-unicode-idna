@@ -157,7 +157,7 @@ fn Processing(
     while (it.nextCodepointSlice()) |s| {
         const c = std.unicode.utf8Decode(s) catch unreachable;
         const p = ucd.unicode_data.find(c);
-        switch (p[4]) {
+        switch (ucd.unicode_data.data_bc[p]) {
             .R, .AL, .AN => domain_is_bidi = true,
             else => {},
         }
@@ -229,11 +229,13 @@ fn Validity_Criteria(
     const first_l = std.unicode.utf8ByteSequenceLength(first_b) catch unreachable;
     const first_c = std.unicode.utf8Decode(label[0..first_l]) catch unreachable;
     const first_p = ucd.unicode_data.find(first_c);
-    if (first_p[2] == .M) return error.IDNAFailure;
-    if (first_p[2] == .Combining_Mark) return error.IDNAFailure;
-    if (first_p[2] == .Mc) return error.IDNAFailure;
-    if (first_p[2] == .Me) return error.IDNAFailure;
-    if (first_p[2] == .Mn) return error.IDNAFailure;
+    const first_gc = ucd.unicode_data.data_gc[first_p];
+    const first_bc = ucd.unicode_data.data_bc[first_p];
+    if (first_gc == .M) return error.IDNAFailure;
+    if (first_gc == .Combining_Mark) return error.IDNAFailure;
+    if (first_gc == .Mc) return error.IDNAFailure;
+    if (first_gc == .Me) return error.IDNAFailure;
+    if (first_gc == .Mn) return error.IDNAFailure;
 
     // 7. Each code point in the label must only have certain Status values according to Section 5, IDNA Mapping Table:
     var it = std.unicode.Utf8View.initUnchecked(label).iterator();
@@ -241,8 +243,8 @@ fn Validity_Criteria(
     var prev_cp: u21 = 0;
 
     // 8. If CheckJoiners, the label must satisify the ContextJ rules from RFC 5892 Appendix A.
-    var point_2before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
-    var point_before: ucd.unicode_data.Codepoint = ucd.unicode_data.data[0];
+    var point_2before: usize = 0;
+    var point_before: usize = 0;
     var zwnj_state: enum { start, dual_joining, transparent1, zwnj, transparent2, right_joining } = .start;
     var check_zwnj_state: ?bool = null;
 
@@ -257,7 +259,7 @@ fn Validity_Criteria(
     var seen_an = false;
     var last_bidi_class: ucd.BidiClass = .NSM;
     if (CheckBidi) {
-        switch (first_p[4]) {
+        switch (first_bc) {
             .L => {},
             .R, .AL => {},
             else => return error.IDNAFailure,
@@ -274,23 +276,25 @@ fn Validity_Criteria(
         for (&ucd.derived_normalization_props.nfc_qc_n.data) |d| if (cp == d) return error.IDNAFailure;
         for (&ucd.derived_normalization_props.nfc_qc_n.data_range) |d| if (cp >= d.from and cp <= d.to) return error.IDNAFailure;
         for (&ucd.derived_normalization_props.nfc_qc_m.data) |d| if (cp == d) {
-            for (&ucd.unicode_data.data) |r| {
-                if (r[5] != .__canonical) continue;
-                if (r[6].len != 2) continue;
-                if (r[6][0] != prev_cp) continue;
-                if (r[6][1] != cp) continue;
-                if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, r[0], extras.compareFnBasic(u21)) != null) continue;
+            const ud = ucd.unicode_data;
+            for (&ud.data_code, &ud.data_decomp, &ud.data_decomp_map) |_cp, dc, dm| {
+                if (dc != .__canonical) continue;
+                if (dm.len != 2) continue;
+                if (dm[0] != prev_cp) continue;
+                if (dm[1] != cp) continue;
+                if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, _cp, extras.compareFnBasic(u21)) != null) continue;
                 // if (r[3] != 0) continue;
                 return error.IDNAFailure;
             }
         };
         for (&ucd.derived_normalization_props.nfc_qc_m.data_range) |d| if (cp >= d.from and cp <= d.to) {
-            for (&ucd.unicode_data.data) |r| {
-                if (r[5] != .__canonical) continue;
-                if (r[6].len != 2) continue;
-                if (r[6][0] != prev_cp) continue;
-                if (r[6][1] != cp) continue;
-                if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, r[0], extras.compareFnBasic(u21)) != null) continue;
+            const ud = ucd.unicode_data;
+            for (&ud.data_code, &ud.data_decomp, &ud.data_decomp_map) |cpp, dc, dm| {
+                if (dc != .__canonical) continue;
+                if (dm.len != 2) continue;
+                if (dm[0] != prev_cp) continue;
+                if (dm[1] != cp) continue;
+                if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, cpp, extras.compareFnBasic(u21)) != null) continue;
                 // if (r[3] != 0) continue;
                 return error.IDNAFailure;
             }
@@ -316,12 +320,13 @@ fn Validity_Criteria(
         }
 
         const p = ucd.unicode_data.find(cp);
+        const p_bc = ucd.unicode_data.data_bc[p];
 
         if (CheckJoiners) {
             // Appendix A.1.  ZERO WIDTH NON-JOINER
             if (cp == 0x200C) {
                 if (check_zwnj_state == null) check_zwnj_state = true;
-                if (point_before[3] == 9) check_zwnj_state = false;
+                if (ucd.unicode_data.data_ccc[point_before] == 9) check_zwnj_state = false;
             }
             switch (zwnj_state) {
                 .start => {
@@ -377,15 +382,15 @@ fn Validity_Criteria(
                 },
             }
             // Appendix A.2.  ZERO WIDTH JOINER
-            if (cp == 0x200D and point_before[3] != 9) return error.IDNAFailure;
+            if (cp == 0x200D and ucd.unicode_data.data_ccc[point_before] != 9) return error.IDNAFailure;
             // Appendix A.3.  MIDDLE DOT
-            if (point_before[0] == 0x00B7 and !(point_2before[0] == 0x006C and cp == 0x006C)) return error.IDNAFailure;
+            if (ucd.unicode_data.data_code[point_before] == 0x00B7 and !(ucd.unicode_data.data_code[point_2before] == 0x006C and cp == 0x006C)) return error.IDNAFailure;
             // Appendix A.4.  GREEK LOWER NUMERAL SIGN (KERAIA)
-            if (point_before[0] == 0x0375 and !(Script(cp) == .Greek)) return error.IDNAFailure;
+            if (ucd.unicode_data.data_code[point_before] == 0x0375 and !(Script(cp) == .Greek)) return error.IDNAFailure;
             // Appendix A.5.  HEBREW PUNCTUATION GERESH
-            if (cp == 0x05F3 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
+            if (cp == 0x05F3 and !(Script(ucd.unicode_data.data_code[point_before]) == .Hebrew)) return error.IDNAFailure;
             // Appendix A.6.  HEBREW PUNCTUATION GERSHAYIM
-            if (cp == 0x05F4 and !(Script(point_before[0]) == .Hebrew)) return error.IDNAFailure;
+            if (cp == 0x05F4 and !(Script(ucd.unicode_data.data_code[point_before]) == .Hebrew)) return error.IDNAFailure;
             // Appendix A.7.  KATAKANA MIDDLE DOT
             if (false) return error.IDNAFailure;
             // Appendix A.8.  ARABIC-INDIC DIGITS
@@ -397,24 +402,24 @@ fn Validity_Criteria(
         point_before = p;
 
         if (CheckBidi) {
-            switch (first_p[4]) {
+            switch (first_bc) {
                 .L => {
-                    switch (p[4]) {
+                    switch (p_bc) {
                         .L, .EN, .ES, .CS, .ET, .ON, .BN => |cl| last_bidi_class = cl,
                         .NSM => {},
                         else => return error.IDNAFailure,
                     }
                 },
                 .R, .AL => {
-                    switch (p[4]) {
+                    switch (p_bc) {
                         .R, .AL, .AN, .EN, .ES, .CS, .ET, .ON, .BN => |cl| last_bidi_class = cl,
                         .NSM => {},
                         else => return error.IDNAFailure,
                     }
-                    if (p[4] == .EN and seen_an) return error.IDNAFailure;
-                    if (p[4] == .EN) seen_en = true;
-                    if (p[4] == .AN and seen_en) return error.IDNAFailure;
-                    if (p[4] == .AN) seen_an = true;
+                    if (p_bc == .EN and seen_an) return error.IDNAFailure;
+                    if (p_bc == .EN) seen_en = true;
+                    if (p_bc == .AN and seen_en) return error.IDNAFailure;
+                    if (p_bc == .AN) seen_an = true;
                 },
                 else => unreachable,
             }
@@ -424,7 +429,7 @@ fn Validity_Criteria(
         if (check_zwnj_state == true and zwnj_state != .right_joining) return error.IDNAFailure;
     }
     if (CheckBidi) {
-        switch (first_p[4]) {
+        switch (first_bc) {
             .L => {
                 switch (last_bidi_class) {
                     .L, .EN => {},

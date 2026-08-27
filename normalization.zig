@@ -4,9 +4,8 @@ const std = @import("std");
 const extras = @import("extras");
 const ucd = @import("unicode-ucd");
 
-const ucd_data_soa = ucd.unicode_data.data_soa;
 const data_first_gap = blk: {
-    for (ucd_data_soa[0], 0..) |cp, i| {
+    for (ucd.unicode_data.data_code, 0..) |cp, i| {
         if (cp != i) {
             break :blk i;
         }
@@ -50,16 +49,16 @@ fn Decomposition(map: *extras.ManyArrayList(u8), kind: enum { canonical, compati
     while (n < map.lengths.items.len) : (n += 1) {
         const sl = map.items(n);
         const cp = std.unicode.utf8Decode(sl) catch unreachable;
-        if (std.sort.binarySearch(u21, ucd_data_soa[0], cp, extras.compareFnBasic(u21))) |j| {
-            if (ucd_data_soa[5][j] == .__none) continue;
-            if ((ucd_data_soa[5][j] == .__canonical) != (kind == .canonical)) continue;
+        if (std.sort.binarySearch(u21, &ucd.unicode_data.data_code, cp, extras.compareFnBasic(u21))) |j| {
+            if (ucd.unicode_data.data_decomp[j] == .__none) continue;
+            if ((ucd.unicode_data.data_decomp[j] == .__canonical) != (kind == .canonical)) continue;
             map.remove(n);
-            for (ucd_data_soa[6][j], 0..) |ktem, k| {
+            for (ucd.unicode_data.data_decomp_map[j], 0..) |ktem, k| {
                 var buf: [4]u8 = undefined;
                 const l = std.unicode.utf8Encode(ktem, &buf) catch unreachable;
                 try map.insertAt(n + k, buf[0..l]);
             }
-            n += ucd_data_soa[6][j].len - 1;
+            n += ucd.unicode_data.data_decomp_map[j].len - 1;
         }
     }
     // sort non-starters with respect to canonical ordering
@@ -116,16 +115,17 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
         const slc = map.items(1);
         const c = std.unicode.utf8Decode(slc) catch unreachable;
 
-        for (&ucd.unicode_data.data) |d| {
-            if (d[5] != .__canonical) continue;
-            if (d[6].len != 2) continue;
-            if (d[6][0] != l) continue;
-            if (d[6][1] != c) continue;
-            if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, d[0], extras.compareFnBasic(u21)) != null) continue;
-            if (d[3] != 0) continue;
+        const ud = ucd.unicode_data;
+        for (&ud.data_code, &ud.data_decomp, &ud.data_decomp_map, &ud.data_ccc) |cp, dc, dm, ccc| {
+            if (dc != .__canonical) continue;
+            if (dm.len != 2) continue;
+            if (dm[0] != l) continue;
+            if (dm[1] != c) continue;
+            if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, cp, extras.compareFnBasic(u21)) != null) continue;
+            if (ccc != 0) continue;
 
             var buf: [4]u8 = undefined;
-            const len = std.unicode.utf8Encode(d[0], &buf) catch unreachable;
+            const len = std.unicode.utf8Encode(cp, &buf) catch unreachable;
             try map.set(0, buf[0..len]);
             map.remove(1);
             break;
@@ -145,16 +145,17 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
             l = std.unicode.utf8Decode(sll) catch unreachable;
             if (cpCCC(l) == 0) break;
         }
-        for (&ucd.unicode_data.data) |d| {
-            if (d[5] != .__canonical) continue;
-            if (d[6].len != 2) continue;
-            if (d[6][0] != l) continue;
-            if (d[6][1] != c) continue;
-            if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, d[0], extras.compareFnBasic(u21)) != null) continue;
-            if (d[3] != 0) continue;
+        const ud = ucd.unicode_data;
+        for (&ud.data_code, &ud.data_decomp, &ud.data_decomp_map, &ud.data_ccc) |cp, dc, dm, ccc| {
+            if (dc != .__canonical) continue;
+            if (dm.len != 2) continue;
+            if (dm[0] != l) continue;
+            if (dm[1] != c) continue;
+            if (std.sort.binarySearch(u21, &ucd.composition_exclusions.data, cp, extras.compareFnBasic(u21)) != null) continue;
+            if (ccc != 0) continue;
 
             var buf: [4]u8 = undefined;
-            const len = std.unicode.utf8Encode(d[0], &buf) catch unreachable;
+            const len = std.unicode.utf8Encode(cp, &buf) catch unreachable;
             try map.set(j, buf[0..len]);
             map.remove(i);
             i -= 1;
@@ -189,10 +190,10 @@ fn CanonicalComposition(map: *extras.ManyArrayList(u8)) !void {
 
 pub fn cpCCC(cp: u21) u8 {
     if (cp < data_first_gap) {
-        return ucd_data_soa[3][cp];
+        return ucd.unicode_data.data_ccc[cp];
     }
-    if (std.sort.binarySearch(u21, ucd_data_soa[0], cp, extras.compareFnBasic(u21))) |idx| {
-        return ucd_data_soa[3][idx];
+    if (std.sort.binarySearch(u21, &ucd.unicode_data.data_code, cp, extras.compareFnBasic(u21))) |idx| {
+        return ucd.unicode_data.data_ccc[idx];
     }
     // TODO: this happens to be correct but ucd.unicode_data needs to detect the block ranges
     return 0;
