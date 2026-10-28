@@ -8,7 +8,7 @@
 
 Zig bindings for Unicode IDNA (Internationalizing Domain Names for Applications) Compatibility Processing
 
-Last updated as of Unicode 17.0.0
+Last updated as of Unicode 18.0.0
 
 http://www.unicode.org/reports/tr46/
 

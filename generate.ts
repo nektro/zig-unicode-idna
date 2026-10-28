@@ -1,6 +1,6 @@
 import { closeSync, openSync } from "node:fs";
 
-const unicode_version = "17.0.0";
+const unicode_version = "18.0.0";
 const encoder = new TextEncoder();
 
 function stringEscape(s?: string) {
